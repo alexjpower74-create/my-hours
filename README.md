@@ -16,6 +16,12 @@ There is no employer login, cloud sync, payroll calculation, overtime rule, wage
 tracking, or analytics. The only stored information is the pay schedule and hours entered in the
 browser's local storage.
 
+## Screenshots
+
+![My Hours current pay period on a phone](docs/screenshots/my-hours-phone.png)
+
+![My Hours end-of-period reminder](docs/screenshots/my-hours-due-day.png)
+
 ## Design
 
 The visual language comes from ShopBoard's Classic theme: white ground, black type and rules, and a
