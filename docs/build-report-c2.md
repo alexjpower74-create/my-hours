@@ -92,6 +92,22 @@ Red proofs this pass: persist forced to `return true` → 4 save-failure checks 
 set to 15px → the 18px check failed in both engines. Both restored before commit.
 `vite build` passes; c1's 43 unit tests pass in this worktree.
 
+## Finder fixes after merging main 1312457 — DONE
+
+- **Stale scroll hid the reminder after reload (Chromium).** `history.scrollRestoration = 'manual'` is
+  set at the top of `app.js`, and `scrollTodayIntoView` now scrolls explicitly to the top whenever the
+  reminder is visible. Checks (both engines, clock on the final day): fresh open → reminder fully in
+  view at scrollY 0; scroll to bottom then `page.reload()` → same; scroll to bottom then in-app
+  Refresh → same. Red proof: removing both lines failed the reload check in Chromium only, which is
+  exactly the finder's symptom (WebKit does not restore scroll on reload).
+- **Tab order now matches visual order.** DOM is Previous, Next, Go to today; every CSS `order`
+  rule is gone. Phone: Previous/Next side by side with Go to today full width below (grid
+  `1 / -1`); wide: three across in DOM order. Checks: Tab (Option+Tab on WebKit, whose default skips
+  buttons) goes Previous → Next → Go to today; computed `order` is 0 on all three; phone geometry
+  asserts same row + below + wider; 800px geometry asserts left-to-right DOM order.
+
+Harness total: 72 checks × 2 engines, 0 VOID. `vite build` passes.
+
 ## Left undone / out of my slice
 - `index.html` links `/manifest.webmanifest` and `app.js` registers `/sw.js` (guarded with `.catch`).
   Both files belong to Cobalt (`public/**`); until they exist the requests 404 harmlessly.
