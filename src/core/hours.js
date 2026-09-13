@@ -202,16 +202,21 @@ export function sanitizeHours(value) {
   }
   if (!Number.isFinite(n)) return null
   if (n < 0 || n > MAX_HOURS) return null
-  return roundToHundredths(n)
+  const rounded = roundToHundredths(n)
+  // Belt and braces: this function's contract is number | null, never NaN.
+  return Number.isFinite(rounded) ? rounded : null
 }
 
 /**
  * Round to two decimals the way a person would: 1.005 -> 1.01.
  * `Math.round(1.005 * 100)` gives 100 because 1.005 * 100 is 100.49999…;
- * shifting the exponent through the shortest decimal string avoids that.
+ * shifting the exponent through a plain decimal string avoids that.
+ * The string comes from toFixed, not template interpolation: `${1e-7}` is
+ * "1e-7", and "1e-7e2" parses to NaN. Within 0–24 toFixed never uses
+ * exponent notation, and eight places is far more than the two we keep.
  */
 function roundToHundredths(n) {
-  return Math.round(Number(`${n}e2`)) / 100
+  return Math.round(Number(`${n.toFixed(8)}e2`)) / 100
 }
 
 /**

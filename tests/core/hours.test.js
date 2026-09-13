@@ -257,6 +257,19 @@ describe('sanitizeHours', () => {
     expect(sanitizeHours('0.004')).toBe(0)
   })
 
+  it('never returns NaN for tiny or exponent-notation numbers (regression)', () => {
+    // `${1e-7}` is "1e-7"; the old rounding built "1e-7e2" and returned NaN.
+    for (const v of [1e-7, 1e-8, 5e-7, 0.0000001, 1e-7 + 0, 23.9999999999, 1e-300, Number.MIN_VALUE]) {
+      const out = sanitizeHours(v)
+      expect(Number.isNaN(out), String(v)).toBe(false)
+      expect(out === null || Number.isFinite(out), String(v)).toBe(true)
+    }
+    expect(sanitizeHours(1e-7)).toBe(0)
+    expect(sanitizeHours(5e-3)).toBe(0.01)
+    expect(sanitizeHours(23.9999999999)).toBe(24)
+    expect(sanitizeHours('1e-7')).toBeNull() // exponent strings are still rejected as typed input
+  })
+
   it('rejects out-of-range and junk', () => {
     for (const v of ['-1', -0.01, '24.01', 25, 'abc', '7h', '1e2', '0x10', NaN, Infinity, -Infinity, {}, [], true, '.', '7.5.1', '1 2']) {
       expect(sanitizeHours(v), JSON.stringify(v) ?? String(v)).toBeNull()
