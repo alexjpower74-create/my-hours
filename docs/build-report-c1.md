@@ -75,3 +75,15 @@ storage, seven kinds of corrupt JSON, partial salvage, never persisting invalid 
 - **Cobalt:** nothing. Vitest picks up `tests/core/*.test.js` with the default config. If e2e files
   end up matching vitest's default glob, an `exclude: ['tests/e2e/**']` in `vite.config.js` is yours.
 - Cross-review of c2's UI: ready when their commit lands; nothing to review yet in this tree.
+
+## Foreman fix 2026-09-13 — sanitizeHours(1e-7) returned NaN — DONE
+
+Reproduced: `sanitizeHours(1e-7)` → `NaN`. Cause: `roundToHundredths` built its decimal string with
+template interpolation, and `${1e-7}` is `"1e-7"`, so `"1e-7e2"` parsed to NaN. Fix: the string now
+comes from `n.toFixed(8)` (never exponent notation within 0–24), and `sanitizeHours` returns `null`
+for any non-finite result as a last guard. `1.005 → 1.01`, `7.257 → 7.26`, `0.004 → 0` unchanged.
+
+Regression test added (tiny values, MIN_VALUE, 23.9999999999) and a negative control that runs the
+same NaN assertion against the old interpolated rounding and requires it to FAIL. Proved live: reverting
+the two lines with sed → 2 failures (regression + negative control), restored, diffed identical.
+45/45 under default TZ, America/St_Johns, UTC, Pacific/Auckland. Main merged into rig/c1 first (fast-forward).

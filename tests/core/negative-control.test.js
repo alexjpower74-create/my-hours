@@ -9,7 +9,7 @@
  * red, which is the signal we want.
  */
 import { describe, it, expect, afterEach } from 'vitest'
-import { dateKey, totalHours, periodForDate, loadState, STORAGE_KEY } from '../../src/core/hours.js'
+import { dateKey, totalHours, periodForDate, loadState, sanitizeHours, STORAGE_KEY } from '../../src/core/hours.js'
 
 const originalTZ = process.env.TZ
 afterEach(() => {
@@ -34,6 +34,9 @@ function brokenPeriodStart(anchorKey, len, targetKey) {
   const s = new Date(a.getTime() + idx * len * 86_400_000)
   return s.toISOString().slice(0, 10)
 }
+
+// Bug 5: rounding through template interpolation; `${1e-7}` is "1e-7".
+const brokenRoundInterpolated = (n) => Math.round(Number(`${n}e2`)) / 100
 
 // Bug 4: trusting stored JSON.
 const brokenLoad = (storage) => JSON.parse(storage.getItem(STORAGE_KEY))
@@ -73,6 +76,14 @@ describe('negative control — the real checks go red against broken code', () =
     const assertion = (fn) => () => expect(fn('2026-08-09', 14, '2026-08-08')).toBe('2026-07-26')
     expect(checkPasses(assertion(brokenPeriodStart))).toBe(false) // VOID if true
     expect(checkPasses(assertion((a, l, t) => periodForDate(a, l, t).startKey))).toBe(true)
+  })
+
+  it('tiny-number check fails for interpolated rounding (and passes for the real one)', () => {
+    const assertion = (fn) => () => expect(Number.isNaN(fn(1e-7))).toBe(false)
+    expect(checkPasses(assertion(brokenRoundInterpolated))).toBe(false) // VOID if true
+    expect(checkPasses(assertion(sanitizeHours))).toBe(true)
+    // and the fix must not regress the human-rounding case
+    expect(sanitizeHours(1.005)).toBe(1.01)
   })
 
   it('corrupt-storage check fails for a trusting loader (and passes for the real one)', () => {
