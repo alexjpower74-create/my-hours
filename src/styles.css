@@ -288,17 +288,8 @@ button, input {
 
 .period-nav #today-period-button {
   grid-column: 1 / -1;
-  order: 3;
   border-color: var(--red);
   color: var(--red);
-}
-
-.period-nav #prev-period-button {
-  order: 1;
-}
-
-.period-nav #next-period-button {
-  order: 2;
 }
 
 /* ---------- day list ---------- */
@@ -490,11 +481,6 @@ button, input {
 
   .period-nav #today-period-button {
     grid-column: auto;
-    order: 2;
-  }
-
-  .period-nav #next-period-button {
-    order: 3;
   }
 }
 

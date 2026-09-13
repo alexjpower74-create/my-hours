@@ -22,6 +22,9 @@ const SAVE_FAILED_MESSAGE = 'Could not save on this phone. Your hours may be los
 // Core state shape: { version, anchorStartKey, lengthDays, entries: { [dateKey]: number } }
 // period.dates is an array of "YYYY-MM-DD" keys; keys are used directly and parsed only for display.
 
+// Chromium restores the previous scroll position on reload, which can hide the final-day reminder.
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
+
 const storage = safeStorage()
 let state = loadState(storage)
 let period = null // { startKey, endKey, dates: string[] }
@@ -464,8 +467,11 @@ function renderReminder(t) {
 }
 
 function scrollTodayIntoView() {
-  // On the final day the big reminder sits at the top; keep it on screen instead of scrolling to today's row.
-  if (!el.reminder.hidden) return
+  // On the final day the big reminder sits at the top; show it instead of scrolling to today's row.
+  if (!el.reminder.hidden) {
+    window.scrollTo(0, 0)
+    return
+  }
   const row = el.dayList.querySelector('.day-row.is-today')
   if (!row) return
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
