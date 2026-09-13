@@ -63,22 +63,38 @@ Checks and their red condition:
 
 Screenshots reviewed at 390×844 (Chromium + WebKit), 360×640, 195×422: main, setup, final-day, invalid entry.
 
-## Important: tested against a local shim, not c1's module
+## Integration pass (after merging main, against c1's real core) — DONE
 
-`src/core/hours.js` did not exist on any branch while I built. I wrote a throwaway shim implementing
-the PLAN contract, tested against it, and **deleted it before committing** (it was never staged; per
-the foreman's instruction no core file is left in this worktree). Real verification against c1's
-module is owed at integration.
+The first commit was tested against a throwaway shim because c1 had not committed yet. After merging
+`main` (c1 core 94f241b, PWA shell, Vitest config) the harness now runs against the real module.
+Fixes made in this pass, all in owned files:
 
-### Assumption c1 needs to confirm (one-line fix if different)
-The UI reads state as `{ version, anchorStartKey: string|null, lengthDays: int|null, entries: { [dateKey]: number } }`
-and writes it back through `saveState(storage, state)` with the same shape. All field access is in
-`readSchedule` / `writeSchedule` / `readEntries` / `writeEntry` at the top of `src/app.js`. Also assumed:
-`loadState` returns a usable empty state (not `null`) on first run or corrupt data; `periodForDate`
-accepts a `Date`; `sanitizeHours('')` → `null`; `totalHours` ignores dates with no entry.
+- **`period.dates` is `string[]`** (my cross-review finding, HIGH): keys are used directly for storage
+  and `totalHours`; `parseDateKey(key)` only for display. No `dateKey()` call on a key string remains.
+- **Save failure is reported, not hidden** (HIGH): `saveState`'s boolean is propagated from
+  `writeSchedule`/`writeEntry`; a `false` shows "Could not save on this phone. Your hours may be lost
+  when you close this page." in the status line (red, `role="status"`) instead of "Saved".
+- **Core `isDateKey` imported** instead of a local copy; core `parseDateKey` throws on impossible days
+  like 2026-02-30, which the local copy would have surfaced as a crash.
+- c1's Playwright review: **reminder stays on screen** on the final day (no scroll-to-today);
+  **invalid non-blank input clears the stored value immediately** so a half-typed "25" or "8x" is
+  never counted or restored on reload; **`visibilitychange` re-selects today** for an installed app
+  left open past midnight; **Enter moves focus to the next day's input** (last one blurs); every
+  visible helper/badge/unit/error/status text raised to the **18px floor**.
+
+Harness now 62 checks (31 × Chromium + WebKit), 0 VOID, against the real core. New checks and their red
+condition: forced `setItem` throw on `my-hours:v1` → status must start "Could not save on this phone"
+and never contain "Saved" (hours and schedule paths); 2026-02-30 typed into setup → plain error, no
+crash; "8x" over a saved 7.5 → stored value gone, total drops, reload shows blank; Enter → next input /
+blur on last; final day → reminder rect fully inside the viewport at scrollY 0; clock 23:50 → 00:10 +
+visibilitychange → today row and period move to Sep 21; no visible text under 18px.
+Red proofs this pass: persist forced to `return true` → 4 save-failure checks failed; `.hours-unit`
+set to 15px → the 18px check failed in both engines. Both restored before commit.
+`vite build` passes; c1's 43 unit tests pass in this worktree.
 
 ## Left undone / out of my slice
 - `index.html` links `/manifest.webmanifest` and `app.js` registers `/sw.js` (guarded with `.catch`).
   Both files belong to Cobalt (`public/**`); until they exist the requests 404 harmlessly.
 - Period length cap of 31 days is my choice (contract says "custom pay schedules work"); trivial to raise.
-- Cross-review of c1's logic: not yet possible, nothing committed on `rig/c1` at time of writing.
+- Cross-review of c1 (94f241b) delivered to the foreman: no c1 change needed before merge; one LOW note
+  that `loadState` ignores `version` despite the comment saying it salvages unknown versions.

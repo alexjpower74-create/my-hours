@@ -4,6 +4,7 @@
 import {
   dateKey,
   parseDateKey,
+  isDateKey,
   inclusiveDays,
   periodForDate,
   shiftPeriod,
@@ -15,14 +16,15 @@ import {
 
 const MAX_PERIOD_DAYS = 31
 const DEFAULT_PERIOD_DAYS = 14
+const SAVE_FAILED_MESSAGE = 'Could not save on this phone. Your hours may be lost when you close this page.'
 
 // ---------- state ----------
-// Expected shape from core: { version, anchorStartKey, lengthDays, entries: { [dateKey]: number } }
-// Access is centralised in readSchedule/writeSchedule/readEntries so an integration change is one edit.
+// Core state shape: { version, anchorStartKey, lengthDays, entries: { [dateKey]: number } }
+// period.dates is an array of "YYYY-MM-DD" keys; keys are used directly and parsed only for display.
 
 const storage = safeStorage()
 let state = loadState(storage)
-let period = null // { startKey, endKey, dates }
+let period = null // { startKey, endKey, dates: string[] }
 let saveTimer = null
 
 function safeStorage() {
@@ -49,7 +51,7 @@ function readSchedule() {
 
 function writeSchedule(anchorStartKey, lengthDays) {
   state = { ...state, anchorStartKey, lengthDays }
-  persist()
+  return persist()
 }
 
 function readEntries() {
@@ -62,11 +64,12 @@ function writeEntry(key, hours) {
   if (hours === null) delete entries[key]
   else entries[key] = hours
   state = { ...state, entries }
-  persist()
+  return persist()
 }
 
+// Returns true when the device kept the data. false means storage is missing, read-only or full.
 function persist() {
-  saveState(storage, state)
+  return saveState(storage, state) === true
 }
 
 // ---------- elements ----------
@@ -114,6 +117,10 @@ function formatHours(n) {
 
 function formatRange(startKey, endKey) {
   return `${rangeDate.format(parseDateKey(startKey))} to ${rangeDate.format(parseDateKey(endKey))}`
+}
+
+function formatDay(key, formatter) {
+  return formatter.format(parseDateKey(key))
 }
 
 function periodLabel(startKey, endKey) {
@@ -165,10 +172,6 @@ function showFieldError(input, error, message) {
   error.textContent = message
   error.hidden = false
   input.setAttribute('aria-invalid', 'true')
-}
-
-function isDateKey(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(parseDateKey(value).getTime())
 }
 
 function validateSetup() {
@@ -233,10 +236,10 @@ el.setupForm.addEventListener('submit', (event) => {
     if (firstInvalid) firstInvalid.focus()
     return
   }
-  writeSchedule(result.start, result.days)
+  const saved = writeSchedule(result.start, result.days)
   closeSetup()
   showPeriodForToday()
-  announce(`Dates saved. Showing ${formatRange(period.startKey, period.endKey)}.`)
+  announce(saved ? `Dates saved. Showing ${formatRange(period.startKey, period.endKey)}.` : SAVE_FAILED_MESSAGE)
 })
 
 el.cancelDatesButton.addEventListener('click', () => {
@@ -298,13 +301,12 @@ function render() {
   el.periodRange.textContent = formatRange(period.startKey, period.endKey)
   document.title = `My Hours — ${formatRange(period.startKey, period.endKey)}`
 
-  el.dayList.replaceChildren(...period.dates.map((date) => renderDayRow(date, entries, t)))
+  el.dayList.replaceChildren(...period.dates.map((key) => renderDayRow(key, entries, t)))
   renderTotal()
   renderReminder(t)
 }
 
-function renderDayRow(date, entries, t) {
-  const key = dateKey(date)
+function renderDayRow(key, entries, t) {
   const isToday = key === t
   const saved = entries[key]
 
@@ -319,12 +321,12 @@ function renderDayRow(date, entries, t) {
 
   const dayName = document.createElement('span')
   dayName.className = 'day-name'
-  dayName.textContent = shortDate.format(date)
+  dayName.textContent = formatDay(key, shortDate)
   label.append(dayName)
 
   const sr = document.createElement('span')
   sr.className = 'visually-hidden'
-  sr.textContent = ` — hours worked, ${longDate.format(date)}`
+  sr.textContent = ` — hours worked, ${formatDay(key, longDate)}`
   label.append(sr)
 
   if (isToday) {
@@ -367,12 +369,15 @@ function renderDayRow(date, entries, t) {
 
   li.append(label, control, error)
 
-  input.addEventListener('input', () => handleHoursInput(input, error, date))
-  input.addEventListener('blur', () => handleHoursBlur(input, error, date))
+  input.addEventListener('input', () => handleHoursInput(input, error, key))
+  input.addEventListener('blur', () => handleHoursBlur(input, error))
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault()
-      input.blur()
+      const inputs = [...el.dayList.querySelectorAll('.hours-input')]
+      const next = inputs[inputs.indexOf(input) + 1]
+      if (next) next.focus()
+      else input.blur()
     }
   })
   return li
@@ -383,7 +388,7 @@ function trimNumber(n) {
   return String(rounded)
 }
 
-function handleHoursInput(input, error, date) {
+function handleHoursInput(input, error, key) {
   const raw = input.value.trim()
   const hours = sanitizeHours(raw)
   const invalid = raw !== '' && hours === null
@@ -391,20 +396,35 @@ function handleHoursInput(input, error, date) {
     error.textContent = 'Please enter a number from 0 to 24, like 8 or 7.5.'
     error.hidden = false
     input.setAttribute('aria-invalid', 'true')
+    // Drop any earlier valid value for this day so a half-typed "25" or "8x" is never counted or restored.
+    const wasStored = typeof readEntries()[key] === 'number'
+    if (wasStored) {
+      const saved = writeEntry(key, null)
+      renderTotal()
+      renderReminder(todayKey())
+      if (!saved) {
+        announce(SAVE_FAILED_MESSAGE)
+        return
+      }
+    }
     announce('')
     return
   }
   error.hidden = true
   error.textContent = ''
   input.removeAttribute('aria-invalid')
-  writeEntry(dateKey(date), hours)
+  const saved = writeEntry(key, hours)
   renderTotal()
   renderReminder(todayKey())
-  const dayText = shortDate.format(date)
+  if (!saved) {
+    announce(SAVE_FAILED_MESSAGE)
+    return
+  }
+  const dayText = formatDay(key, shortDate)
   announceSoon(hours === null ? `Cleared ${dayText}.` : `Saved ${formatHours(hours)} for ${dayText}.`)
 }
 
-function handleHoursBlur(input, error, date) {
+function handleHoursBlur(input, error) {
   const raw = input.value.trim()
   const hours = sanitizeHours(raw)
   if (raw !== '' && hours === null) {
@@ -419,7 +439,7 @@ function handleHoursBlur(input, error, date) {
 function renderTotal() {
   const entries = readEntries()
   const total = totalHours(entries, period.dates)
-  const filled = period.dates.filter((d) => typeof entries[dateKey(d)] === 'number').length
+  const filled = period.dates.filter((key) => typeof entries[key] === 'number').length
   el.totalValue.textContent = formatHours(total)
   el.totalValue.dataset.total = String(total)
   el.totalValue.setAttribute('aria-label', `Total this period: ${formatHours(total)} across ${filled} ${filled === 1 ? 'day' : 'days'} entered`)
@@ -444,6 +464,8 @@ function renderReminder(t) {
 }
 
 function scrollTodayIntoView() {
+  // On the final day the big reminder sits at the top; keep it on screen instead of scrolling to today's row.
+  if (!el.reminder.hidden) return
   const row = el.dayList.querySelector('.day-row.is-today')
   if (!row) return
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -454,14 +476,13 @@ function scrollTodayIntoView() {
 function announce(message) {
   clearTimeout(saveTimer)
   el.saveStatus.textContent = message
+  el.saveStatus.classList.toggle('is-error', message === SAVE_FAILED_MESSAGE)
 }
 
 function announceSoon(message) {
   // Coalesce rapid keystrokes so a screen reader hears one "Saved" per pause, not per character.
   clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    el.saveStatus.textContent = message
-  }, 400)
+  saveTimer = setTimeout(() => announce(message), 400)
 }
 
 // ---------- boot ----------
@@ -475,6 +496,17 @@ function boot() {
 }
 
 boot()
+
+// An installed app left open past midnight: when it comes back to the foreground, re-check which day is today.
+let renderedTodayKey = todayKey()
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return
+  if (todayKey() === renderedTodayKey) return
+  renderedTodayKey = todayKey()
+  if (!readSchedule() || !el.setup.hidden) return
+  showPeriodForToday()
+  announce(`It is now ${longDate.format(new Date())}.`)
+})
 
 // Offline shell: the service worker itself is provided by the integration slice (public/sw.js).
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {

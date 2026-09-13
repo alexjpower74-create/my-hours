@@ -199,7 +199,7 @@ button, input {
 
 .field-hint {
   color: var(--ink-soft);
-  font-size: 17px;
+  font-size: 18px;
   margin-top: 8px;
 }
 
@@ -349,7 +349,7 @@ button, input {
   display: inline-block;
   background: var(--red);
   color: var(--white);
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -384,14 +384,14 @@ button, input {
 }
 
 .hours-unit {
-  font-size: 17px;
+  font-size: 18px;
   color: var(--ink-soft);
   min-width: 48px;
 }
 
 .day-error {
   grid-area: error;
-  font-size: 17px;
+  font-size: 18px;
 }
 
 /* ---------- sticky total ---------- */
@@ -431,7 +431,7 @@ button, input {
 }
 
 .save-status {
-  font-size: 17px;
+  font-size: 18px;
   color: var(--ink-soft);
   min-height: 1.45em;
   margin-top: 4px;
@@ -541,4 +541,11 @@ button, input {
   .header-actions .btn {
     width: 100%;
   }
+}
+
+/* ---------- save failure ---------- */
+
+.save-status.is-error {
+  color: var(--red);
+  font-weight: 700;
 }
