@@ -17,7 +17,7 @@ async function completeSetup(page) {
   await expect(page.locator('.hours-input')).toHaveCount(14)
 }
 
-test('tracks a fortnight, validates hours, navigates, and survives refresh', async ({ page }) => {
+test('tracks a fortnight, validates hours, navigates, and survives refresh', async ({ page, browserName }) => {
   await openAt(page, MONDAY)
 
   await expect(page.getByRole('heading', { name: 'Set your pay period' })).toBeVisible()
@@ -60,6 +60,13 @@ test('tracks a fortnight, validates hours, navigates, and survives refresh', asy
   await expect(page.getByLabel('First day of the pay period')).toHaveValue('2026-09-07')
   await page.getByRole('button', { name: 'Cancel' }).click()
   await expect(page.locator('#main')).toBeVisible()
+
+  await page.locator('#prev-period-button').focus()
+  const tabKey = browserName === 'webkit' ? 'Alt+Tab' : 'Tab'
+  await page.keyboard.press(tabKey)
+  await expect(page.locator('#next-period-button')).toBeFocused()
+  await page.keyboard.press(tabKey)
+  await expect(page.locator('#today-period-button')).toBeFocused()
 
   const criticalTargets = [
     '#edit-dates-button',
@@ -112,6 +119,18 @@ test('keeps the end-of-period reminder large and on screen', async ({ page }) =>
   expect(position.scrollY).toBe(0)
   expect(position.top).toBeGreaterThanOrEqual(0)
   expect(position.bottom).toBeLessThanOrEqual(position.viewport)
+
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+  await page.reload()
+  await expect(reminder).toBeVisible()
+  const afterReload = await reminder.evaluate((node) => {
+    const rect = node.getBoundingClientRect()
+    return { top: rect.top, bottom: rect.bottom, viewport: innerHeight, scrollY }
+  })
+  expect(afterReload.scrollY).toBe(0)
+  expect(afterReload.top).toBeGreaterThanOrEqual(0)
+  expect(afterReload.bottom).toBeLessThanOrEqual(afterReload.viewport)
 })
 
 test('warns plainly when the phone refuses to save', async ({ page }) => {
