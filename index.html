@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>My Hours</title>
+  <meta name="description" content="A plain, private hours tracker for one pay period at a time. Everything stays on this phone.">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="My Hours">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to today's hours</a>
+
+  <header class="app-header">
+    <h1 class="app-title">My Hours</h1>
+    <div class="header-actions">
+      <button type="button" class="btn btn-secondary" id="edit-dates-button" hidden>Edit dates</button>
+      <button type="button" class="btn btn-secondary" id="refresh-button" hidden>Refresh</button>
+    </div>
+  </header>
+
+  <!-- Setup / Edit dates sheet -->
+  <section id="setup" class="sheet" aria-labelledby="setup-title" hidden>
+    <h2 id="setup-title" class="sheet-title" tabindex="-1">Set your pay period</h2>
+    <p id="setup-help" class="sheet-help">
+      Enter the first day and the last day of one pay period you know.
+      My Hours will work out every period before and after it.
+    </p>
+    <form id="setup-form" novalidate aria-describedby="setup-help">
+      <div class="field">
+        <label for="start-date">First day of the pay period</label>
+        <input type="date" id="start-date" name="start" required autocomplete="off" aria-describedby="start-error">
+        <p id="start-error" class="field-error" role="alert" hidden></p>
+      </div>
+      <div class="field">
+        <label for="end-date">Last day of the pay period</label>
+        <input type="date" id="end-date" name="end" required autocomplete="off" aria-describedby="end-hint end-error">
+        <p id="end-hint" class="field-hint">Most pay periods are 14 days, so the last day is 13 days after the first.</p>
+        <p id="end-error" class="field-error" role="alert" hidden></p>
+      </div>
+      <p id="setup-summary" class="setup-summary" aria-live="polite"></p>
+      <div class="sheet-actions">
+        <button type="submit" class="btn btn-primary" id="save-dates-button">Save dates</button>
+        <button type="button" class="btn btn-secondary" id="cancel-dates-button" hidden>Cancel</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Main screen -->
+  <main id="main" class="main" hidden>
+    <section id="reminder" class="reminder" role="region" aria-labelledby="reminder-title" hidden>
+      <h2 id="reminder-title" class="reminder-title">Pay period ends today.</h2>
+      <p class="reminder-text">Remember to submit your hours.</p>
+      <p class="reminder-total" id="reminder-total"></p>
+    </section>
+
+    <section class="period" aria-labelledby="period-title">
+      <h2 id="period-title" class="period-title" tabindex="-1">
+        <span class="period-kicker" id="period-kicker">Pay period</span>
+        <span class="period-range" id="period-range"></span>
+      </h2>
+      <nav class="period-nav" aria-label="Change pay period">
+        <button type="button" class="btn btn-secondary" id="prev-period-button">Previous period</button>
+        <button type="button" class="btn btn-secondary" id="today-period-button">Go to today</button>
+        <button type="button" class="btn btn-secondary" id="next-period-button">Next period</button>
+      </nav>
+    </section>
+
+    <section class="days" aria-labelledby="days-title">
+      <h2 id="days-title" class="days-title">Hours for each day</h2>
+      <p id="hours-hint" class="days-hint">Type the hours you worked, from 0 to 24. Leave a day blank if you have not worked it yet. Type 0 for a day off.</p>
+      <ol class="day-list" id="day-list"></ol>
+    </section>
+  </main>
+
+  <footer class="total-bar" id="total-bar" hidden>
+    <div class="total-line">
+      <span class="total-label">Total this period</span>
+      <output class="total-value" id="total-value" for="day-list" aria-live="polite" aria-atomic="true">0 hours</output>
+    </div>
+    <p class="save-status" id="save-status" role="status" aria-live="polite"></p>
+  </footer>
+
+  <script type="module" src="/src/app.js"></script>
+</body>
+</html>
