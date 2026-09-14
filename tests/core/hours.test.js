@@ -10,6 +10,10 @@ import {
   shiftPeriod,
   sanitizeHours,
   totalHours,
+  categoryTotals,
+  sanitizeNote,
+  CATEGORIES,
+  MAX_NOTE_LENGTH,
   defaultState,
   normalizeState,
   loadState,
@@ -312,27 +316,88 @@ describe('totalHours', () => {
   })
 })
 
+describe('categories', () => {
+  const dates = ['2026-09-14', '2026-09-15']
+  const entries = {
+    '2026-09-14': { 'heavy-duty': 4, automotive: 2.5, customer: 1.25 },
+    '2026-09-15': { 'heavy-duty': 0.1, customer: 0.2 },
+    '2026-09-16': { 'heavy-duty': 99 },
+  }
+
+  it('names the three categories in order', () => {
+    expect(CATEGORIES.map((c) => c.label)).toEqual(['Dennis Heavy Duty', 'Dennis Automotive', 'Customer'])
+  })
+
+  it('totals each category separately and all of them together', () => {
+    expect(totalHours(entries, dates, 'heavy-duty')).toBe(4.1)
+    expect(totalHours(entries, dates, 'automotive')).toBe(2.5)
+    expect(totalHours(entries, dates, 'customer')).toBe(1.45)
+    expect(totalHours(entries, dates)).toBe(8.05)
+    expect(categoryTotals(entries, dates)).toEqual({ 'heavy-duty': 4.1, automotive: 2.5, customer: 1.45, earlier: 0, all: 8.05 })
+    expect(() => totalHours(entries, dates, 'overtime')).toThrow(RangeError)
+  })
+
+  it('counts version 1 hours (one number per day) as no category, never as a real category', () => {
+    const mixed = { '2026-09-14': 8, '2026-09-15': { customer: 2 } }
+    expect(categoryTotals(mixed, dates)).toEqual({ 'heavy-duty': 0, automotive: 0, customer: 2, earlier: 8, all: 10 })
+  })
+
+  it('keeps notes as typed, drops blank ones, and caps their length', () => {
+    expect(sanitizeNote('Brakes on the 450 ')).toBe('Brakes on the 450 ')
+    expect(sanitizeNote('   ')).toBeNull()
+    expect(sanitizeNote(42)).toBeNull()
+    expect(sanitizeNote('x'.repeat(MAX_NOTE_LENGTH + 20))).toHaveLength(MAX_NOTE_LENGTH)
+  })
+})
+
 describe('persistence', () => {
   it('saves under the contract key and loads back the same state', () => {
     const storage = makeStorage()
-    const state = { version: 1, anchorStartKey: '2026-08-09', lengthDays: 14, entries: { '2026-08-10': 7.5, '2026-08-11': 0 } }
+    const state = {
+      version: 2,
+      anchorStartKey: '2026-08-09',
+      lengthDays: 14,
+      entries: { '2026-08-10': { 'heavy-duty': 7.5, customer: 0 }, '2026-08-11': { automotive: 0 } },
+      notes: { '2026-08-10': { 'heavy-duty': 'Hydraulics' } },
+    }
     expect(saveState(storage, state)).toBe(true)
     expect(STORAGE_KEY).toBe('my-hours:v1')
     expect(storage._map.has('my-hours:v1')).toBe(true)
-    expect(JSON.parse(storage._map.get('my-hours:v1')).version).toBe(1)
+    expect(JSON.parse(storage._map.get('my-hours:v1')).version).toBe(2)
     expect(loadState(storage)).toEqual(state)
+  })
+
+  it('upgrades version 1 data without losing a single hour', () => {
+    const v1 = JSON.stringify({ version: 1, anchorStartKey: '2026-09-07', lengthDays: 14, entries: { '2026-09-08': 8, '2026-09-09': 0 } })
+    const state = loadState(makeStorage({ [STORAGE_KEY]: v1 }))
+    expect(state.entries).toEqual({ '2026-09-08': { earlier: 8 }, '2026-09-09': { earlier: 0 } })
+    expect(state.notes).toEqual({})
+    expect(totalHours(state.entries, ['2026-09-08', '2026-09-09'])).toBe(8)
+  })
+
+  it('salvages good category hours and notes, dropping only the bad ones', () => {
+    const stored = JSON.stringify({
+      version: 2,
+      anchorStartKey: '2026-08-09',
+      lengthDays: 14,
+      entries: { '2026-08-10': { 'heavy-duty': '6,5', automotive: 30, overtime: 4, customer: 'x' }, '2026-08-11': { automotive: 40 } },
+      notes: { '2026-08-10': { customer: 'Tires', 'heavy-duty': '  ', overtime: 'no' }, '2026-08-12': 'flat', bad: { customer: 'x' } },
+    })
+    const state = loadState(makeStorage({ [STORAGE_KEY]: stored }))
+    expect(state.entries).toEqual({ '2026-08-10': { 'heavy-duty': 6.5 } })
+    expect(state.notes).toEqual({ '2026-08-10': { customer: 'Tires' } })
   })
 
   it('keeps entries across a simulated refresh (new load from the same storage)', () => {
     const storage = makeStorage()
     const s1 = loadState(storage)
     s1.anchorStartKey = '2026-08-09'
-    s1.entries['2026-08-09'] = 8
+    s1.entries['2026-08-09'] = { 'heavy-duty': 8 }
     saveState(storage, s1)
     const s2 = loadState(storage)
-    s2.entries['2026-08-10'] = 6.5
+    s2.entries['2026-08-10'] = { customer: 6.5 }
     saveState(storage, s2)
-    expect(loadState(storage).entries).toEqual({ '2026-08-09': 8, '2026-08-10': 6.5 })
+    expect(loadState(storage).entries).toEqual({ '2026-08-09': { 'heavy-duty': 8 }, '2026-08-10': { customer: 6.5 } })
   })
 
   it('returns a fresh default when storage is missing, empty, or throws', () => {
@@ -359,23 +424,23 @@ describe('persistence', () => {
       entries: { '2026-08-10': 7.5, '2026-08-11': 'lots', '2026-02-30': 8, 'garbage': 1, '2026-08-12': 30, '2026-08-13': '6,25' },
     })
     const state = loadState(makeStorage({ [STORAGE_KEY]: stored }))
-    expect(state.version).toBe(1)
+    expect(state.version).toBe(2)
     expect(state.anchorStartKey).toBe('2026-08-09')
     expect(state.lengthDays).toBe(14)
-    expect(state.entries).toEqual({ '2026-08-10': 7.5, '2026-08-13': 6.25 })
+    expect(state.entries).toEqual({ '2026-08-10': { earlier: 7.5 }, '2026-08-13': { earlier: 6.25 } })
   })
 
   it('falls back to defaults for a bad anchor or length but keeps entries', () => {
     const state = loadState(makeStorage({ [STORAGE_KEY]: JSON.stringify({ anchorStartKey: 'soon', lengthDays: 0, entries: { '2026-01-01': 1 } }) }))
     expect(state.anchorStartKey).toBeNull()
     expect(state.lengthDays).toBe(14)
-    expect(state.entries).toEqual({ '2026-01-01': 1 })
+    expect(state.entries).toEqual({ '2026-01-01': { earlier: 1 } })
   })
 
   it('never persists invalid data and reports write failures', () => {
     const storage = makeStorage()
     saveState(storage, { anchorStartKey: 'x', lengthDays: -3, entries: { '2026-01-01': '99', '2026-01-02': '4' } })
-    expect(JSON.parse(storage._map.get(STORAGE_KEY))).toEqual({ version: 1, anchorStartKey: null, lengthDays: 14, entries: { '2026-01-02': 4 } })
+    expect(JSON.parse(storage._map.get(STORAGE_KEY))).toEqual({ version: 2, anchorStartKey: null, lengthDays: 14, entries: { '2026-01-02': { earlier: 4 } }, notes: {} })
 
     expect(saveState(null, defaultState())).toBe(false)
     expect(saveState({ setItem: () => { throw new Error('QuotaExceededError') } }, defaultState())).toBe(false)

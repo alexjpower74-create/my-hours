@@ -14,8 +14,11 @@ async function completeSetup(page) {
   await start.press('Tab')
   await expect(page.getByLabel('Last day of the pay period')).toHaveValue('2026-09-20')
   await page.getByRole('button', { name: 'Save dates' }).click()
-  await expect(page.locator('.hours-input')).toHaveCount(14)
+  await expect(page.locator('.day-row')).toHaveCount(14)
+  await expect(page.locator('.hours-input')).toHaveCount(42)
 }
+
+const categoryTotal = (page, id) => page.locator(`.category-total[data-category="${id}"] .category-total-value`)
 
 test('tracks a fortnight, validates hours, navigates, and survives refresh', async ({ page, browserName }) => {
   await openAt(page, MONDAY)
@@ -27,27 +30,51 @@ test('tracks a fortnight, validates hours, navigates, and survives refresh', asy
   await expect(today).toHaveAttribute('aria-current', 'date')
   await expect(today.getByText('Today')).toBeVisible()
 
-  const first = page.locator('#hours-2026-09-07')
-  const second = page.locator('#hours-2026-09-08')
+  await expect(today.locator('.category-name')).toHaveText([
+    /^Dennis Heavy Duty/, /^Dennis Automotive/, /^Customer/,
+  ])
+  await expect(page.locator('.category-total-label')).toHaveText(['Dennis Heavy Duty', 'Dennis Automotive', 'Customer'])
+
+  const first = page.locator('#hours-2026-09-07-heavy-duty')
+  const second = page.locator('#hours-2026-09-08-heavy-duty')
   await first.click()
   await first.pressSequentially('8')
   await second.click()
   await second.pressSequentially('7.5')
   await expect(page.locator('#total-value')).toHaveText('15.5 hours')
 
+  // Same day, other categories: each total stays separate, the overall total adds them all.
+  await page.locator('#hours-2026-09-07-automotive').fill('2.25')
+  await page.locator('#hours-2026-09-14-customer').fill('1')
+  await expect(categoryTotal(page, 'heavy-duty')).toHaveText('15.5 hours')
+  await expect(categoryTotal(page, 'automotive')).toHaveText('2.25 hours')
+  await expect(categoryTotal(page, 'customer')).toHaveText('1 hour')
+  await expect(page.locator('#total-value')).toHaveText('18.75 hours')
+  await expect(page.locator('.category-total[data-category="earlier"]')).toHaveCount(0)
+
+  const note = page.locator('#note-2026-09-14-customer')
+  await note.fill('Brakes on the service truck')
+  await page.locator('#hours-2026-09-07-automotive').fill('')
+  await expect(categoryTotal(page, 'automotive')).toHaveText('0 hours')
+  await expect(page.locator('#total-value')).toHaveText('16.5 hours')
+
   await first.click()
   await first.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
   await first.pressSequentially('8x')
   await expect(first).toHaveAttribute('aria-invalid', 'true')
-  await expect(page.locator('#total-value')).toHaveText('7.5 hours')
+  await expect(page.locator('#total-value')).toHaveText('8.5 hours')
 
   await first.click()
   await first.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
   await first.pressSequentially('8')
-  await expect(page.locator('#total-value')).toHaveText('15.5 hours')
+  await expect(page.locator('#total-value')).toHaveText('16.5 hours')
   await page.reload()
-  await expect(page.locator('#total-value')).toHaveText('15.5 hours')
+  await expect(page.locator('#total-value')).toHaveText('16.5 hours')
+  await expect(categoryTotal(page, 'heavy-duty')).toHaveText('15.5 hours')
+  await expect(categoryTotal(page, 'customer')).toHaveText('1 hour')
   await expect(first).toHaveValue('8')
+  await expect(note).toHaveValue('Brakes on the service truck')
+  await expect(page.locator('#note-2026-09-13-customer')).toHaveValue('')
 
   await page.getByRole('button', { name: 'Next period' }).click()
   await expect(page.locator('#period-kicker')).toHaveText('Upcoming pay period')
@@ -74,8 +101,11 @@ test('tracks a fortnight, validates hours, navigates, and survives refresh', asy
     '#prev-period-button',
     '#today-period-button',
     '#next-period-button',
-    '#hours-2026-09-14',
-    '#hours-2026-09-20',
+    '#hours-2026-09-14-heavy-duty',
+    '#hours-2026-09-14-automotive',
+    '#hours-2026-09-14-customer',
+    '#note-2026-09-14-customer',
+    '#hours-2026-09-20-customer',
   ]
   for (const selector of criticalTargets) {
     const target = page.locator(selector)
@@ -112,6 +142,11 @@ test('keeps the end-of-period reminder large and on screen', async ({ page }) =>
   await expect(reminder).toBeVisible()
   await expect(reminder).toContainText('Pay period ends today')
   await expect(reminder).toContainText('15.5 hours')
+  // Version 1 hours (one number per day) survive the upgrade as "No category", not guessed into a category.
+  await expect(categoryTotal(page, 'earlier')).toHaveText('15.5 hours')
+  await expect(categoryTotal(page, 'heavy-duty')).toHaveText('0 hours')
+  await expect(page.locator('#hours-2026-09-20-earlier')).toHaveValue('7.5')
+  await expect(page.locator('#hours-2026-09-18-earlier')).toHaveCount(0)
   const position = await reminder.evaluate((node) => {
     const rect = node.getBoundingClientRect()
     return { top: rect.top, bottom: rect.bottom, viewport: innerHeight, scrollY }
@@ -151,7 +186,7 @@ test('works offline after the first visit', async ({ page, context, browserName 
   test.skip(browserName !== 'chromium', 'One service-worker smoke test is sufficient; UI runs in WebKit above.')
   await openAt(page, MONDAY)
   await completeSetup(page)
-  await page.locator('#hours-2026-09-14').fill('8')
+  await page.locator('#hours-2026-09-14-customer').fill('8')
   await page.evaluate(() => navigator.serviceWorker.ready)
   await page.reload()
   await expect(page.locator('#total-value')).toHaveText('8 hours')

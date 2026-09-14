@@ -5,7 +5,14 @@
 **My Hours** is a generic, phone-first personal hours tracker for one employee. It stores everything
 on the device, opens on today, totals the active pay period while the employee fills it in, and shows
 a large reminder on the final day. It is intentionally limited: no employer account, sign-in, cloud
-sync, payroll rules, overtime, breaks, wages, notes, reports, or administrative settings.
+sync, payroll rules, overtime, breaks, wages, reports, or administrative settings.
+
+**Categories (added 2026-09-14 at Alexander's request):** every day has three hour boxes, one per
+category, in this order: **Dennis Heavy Duty**, **Dennis Automotive**, **Customer**. Each box has an
+optional note under it. The sticky total shows each category's period total side by side, with the
+overall total for all three below. Hours saved before categories existed (one number per day) are kept
+as "No category": shown on their day and in the totals only where present, never guessed into a
+category. Everything else (look, setup, navigation, reminder) is unchanged.
 
 The user chooses the start and end of one known pay period during setup. That inclusive period length
 then repeats continuously backward and forward. A normal choice is 14 days, but custom pay schedules
@@ -21,8 +28,8 @@ dates, and Refresh. The device's local calendar date selects and highlights toda
   mystery controls, no hidden gestures, no motion required, and `prefers-reduced-motion` respected.
 - Setup asks only for pay-period start and end. End defaults to 13 days after start. Validation is
   written in plain language. Edit dates reopens the same two-field sheet.
-- Main screen shows a large period range, fourteen (or configured count) day rows, a direct numeric
-  hours field per day, today clearly marked, and a sticky running total at the bottom.
+- Main screen shows a large period range, fourteen (or configured count) day rows, three numeric
+  hours fields per day (one per category, each with a note), today clearly marked, and a sticky running total at the bottom.
 - Hours accept 0–24 with up to two decimals. Blank means no entry; zero is a valid day off. Changes
   save locally on input/blur and update the total immediately.
 - On the final day, show a prominent reminder: “Pay period ends today. Remember to submit your hours.”

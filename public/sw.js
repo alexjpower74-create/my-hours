@@ -1,4 +1,4 @@
-const CACHE = 'my-hours-shell-v1'
+const CACHE = 'my-hours-shell-v2'
 const SHELL = [
   '/',
   '/assets/app.js',

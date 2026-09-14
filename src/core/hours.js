@@ -15,14 +15,35 @@
  *   periodForDate(anchorStartKey, lengthDays, date)-> { startKey, endKey, dates }
  *   shiftPeriod(period, offset)                    -> { startKey, endKey, dates }
  *   sanitizeHours(value)                           -> number | null
- *   totalHours(entries, dates)                     -> number (2 decimal places)
+ *   totalHours(entries, dates, categoryId?)        -> number (2 decimal places)
+ *   categoryTotals(entries, dates)                 -> { [categoryId]: number, all: number }
+ *   sanitizeNote(value)                            -> string | null
  *   loadState(storage) / saveState(storage, state) -> persisted under "my-hours:v1"
  *   defaultState()                                 -> a fresh, valid state
- *   STORAGE_KEY, STATE_VERSION, MAX_HOURS, DEFAULT_LENGTH_DAYS
+ *   STORAGE_KEY, STATE_VERSION, MAX_HOURS, DEFAULT_LENGTH_DAYS, MAX_NOTE_LENGTH
+ *   CATEGORIES, EARLIER_CATEGORY, CATEGORY_IDS
  */
 
+// The key keeps its v1 name so hours saved before categories existed are still found.
 export const STORAGE_KEY = 'my-hours:v1'
-export const STATE_VERSION = 1
+export const STATE_VERSION = 2
+export const MAX_NOTE_LENGTH = 500
+
+/** The three kinds of work hours are logged against, in display order. */
+export const CATEGORIES = Object.freeze([
+  Object.freeze({ id: 'heavy-duty', label: 'Dennis Heavy Duty' }),
+  Object.freeze({ id: 'automotive', label: 'Dennis Automotive' }),
+  Object.freeze({ id: 'customer', label: 'Customer' }),
+])
+
+/**
+ * Hours typed before categories existed (version 1 stored one number per
+ * day). They are kept and counted in the overall total under this id rather
+ * than guessed into one of the real categories.
+ */
+export const EARLIER_CATEGORY = Object.freeze({ id: 'earlier', label: 'No category' })
+
+export const CATEGORY_IDS = Object.freeze([...CATEGORIES.map((c) => c.id), EARLIER_CATEGORY.id])
 export const MAX_HOURS = 24
 export const DEFAULT_LENGTH_DAYS = 14
 
@@ -220,23 +241,60 @@ function roundToHundredths(n) {
 }
 
 /**
+ * The hours for one category on one day entry. A day entry is either an
+ * object of categoryId -> hours, or (version 1 data) a bare number, which
+ * belongs to EARLIER_CATEGORY.
+ */
+function entryHours(entry, categoryId) {
+  if (entry !== null && typeof entry === 'object' && !Array.isArray(entry)) {
+    return Object.hasOwn(entry, categoryId) ? sanitizeHours(entry[categoryId]) : null
+  }
+  return categoryId === EARLIER_CATEGORY.id ? sanitizeHours(entry) : null
+}
+
+/**
  * Sum the hours for the given dates. Adds in whole hundredths so
  * 0.1 + 0.2 comes out as 0.3, not 0.30000000000000004. Entries that are
  * missing or fail sanitizeHours count as nothing. Dates outside `dates`
  * are ignored, so passing a period's `dates` gives that period's total.
  *
- * @param {Record<string, number|string|null>} entries  dateKey -> hours
- * @param {string[]} dates                              keys to total
+ * @param {Record<string, object|number|string|null>} entries  dateKey -> { categoryId: hours } (or v1 hours)
+ * @param {string[]} dates                                     keys to total
+ * @param {string} [categoryId]                                one category; omit for every category
  */
-export function totalHours(entries, dates) {
+export function totalHours(entries, dates, categoryId) {
   if (!Array.isArray(dates)) throw new TypeError('totalHours expects an array of date keys')
+  if (categoryId !== undefined && !CATEGORY_IDS.includes(categoryId)) {
+    throw new RangeError(`Unknown category ${JSON.stringify(categoryId)}`)
+  }
   if (!entries || typeof entries !== 'object') return 0
+  const ids = categoryId === undefined ? CATEGORY_IDS : [categoryId]
   let hundredths = 0
   for (const key of dates) {
-    const hours = sanitizeHours(entries[key])
-    if (hours !== null) hundredths += Math.round(hours * 100)
+    for (const id of ids) {
+      const hours = entryHours(entries[key], id)
+      if (hours !== null) hundredths += Math.round(hours * 100)
+    }
   }
   return hundredths / 100
+}
+
+/** Every category's total for the dates, plus `all`, the overall total. */
+export function categoryTotals(entries, dates) {
+  const totals = {}
+  for (const id of CATEGORY_IDS) totals[id] = totalHours(entries, dates, id)
+  totals.all = totalHours(entries, dates)
+  return totals
+}
+
+/**
+ * Clean a typed note. Whitespace-only and non-strings mean no note (null).
+ * The text is otherwise kept exactly as typed (a trailing space mid-typing
+ * must survive a save), capped at MAX_NOTE_LENGTH characters.
+ */
+export function sanitizeNote(value) {
+  if (typeof value !== 'string' || value.trim() === '') return null
+  return value.slice(0, MAX_NOTE_LENGTH)
 }
 
 // ---------------------------------------------------------------------------
@@ -246,14 +304,19 @@ export function totalHours(entries, dates) {
 /**
  * A fresh state. `anchorStartKey === null` means setup has not been done.
  *   {
- *     version: 1,
+ *     version: 2,
  *     anchorStartKey: "YYYY-MM-DD" | null,   start of the period chosen in setup
  *     lengthDays: number,                    inclusive period length (default 14)
- *     entries: { [dateKey]: number }         hours per day, only valid values kept
+ *     entries: { [dateKey]: { [categoryId]: number } }  hours per day per category, valid values only
+ *     notes:   { [dateKey]: { [categoryId]: string } }  optional note per day per category
  *   }
  */
 export function defaultState() {
-  return { version: STATE_VERSION, anchorStartKey: null, lengthDays: DEFAULT_LENGTH_DAYS, entries: {} }
+  return { version: STATE_VERSION, anchorStartKey: null, lengthDays: DEFAULT_LENGTH_DAYS, entries: {}, notes: {} }
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 /**
@@ -270,11 +333,27 @@ export function normalizeState(raw) {
   const len = Number(raw.lengthDays)
   if (Number.isInteger(len) && len >= 1) state.lengthDays = len
 
-  if (raw.entries && typeof raw.entries === 'object' && !Array.isArray(raw.entries)) {
+  if (isPlainObject(raw.entries)) {
     for (const key of Object.keys(raw.entries)) {
       if (!isDateKey(key)) continue
-      const hours = sanitizeHours(raw.entries[key])
-      if (hours !== null) state.entries[key] = hours
+      const day = {}
+      for (const id of CATEGORY_IDS) {
+        const hours = entryHours(raw.entries[key], id)
+        if (hours !== null) day[id] = hours
+      }
+      if (Object.keys(day).length > 0) state.entries[key] = day
+    }
+  }
+
+  if (isPlainObject(raw.notes)) {
+    for (const key of Object.keys(raw.notes)) {
+      if (!isDateKey(key) || !isPlainObject(raw.notes[key])) continue
+      const day = {}
+      for (const id of CATEGORY_IDS) {
+        const note = Object.hasOwn(raw.notes[key], id) ? sanitizeNote(raw.notes[key][id]) : null
+        if (note !== null) day[id] = note
+      }
+      if (Object.keys(day).length > 0) state.notes[key] = day
     }
   }
   return state
@@ -300,8 +379,9 @@ export function loadState(storage) {
   } catch {
     return defaultState()
   }
-  // Only version 1 exists. An unknown version is either from the future or
-  // corrupt; salvage what we recognise rather than trusting it wholesale.
+  // Version 1 (one number per day) is upgraded in normalizeState. An unknown
+  // version is either from the future or corrupt; salvage what we recognise
+  // rather than trusting it wholesale.
   return normalizeState(parsed)
 }
 

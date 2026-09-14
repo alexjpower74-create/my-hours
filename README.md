@@ -6,14 +6,16 @@ without an account, and keeps its data on that device.
 ## What it does
 
 - Opens on the phone's current day.
-- Shows one clear hours box for every day in the active pay period.
-- Adds valid entries immediately and keeps the running total visible at the bottom.
+- Shows three hours boxes for every day in the active pay period, one per category: Dennis Heavy
+  Duty, Dennis Automotive and Customer, each with an optional note underneath.
+- Adds valid entries immediately and keeps each category's total, plus the overall total, visible at
+  the bottom.
 - Repeats any pay schedule from one known start and end date; 14 days is the default.
 - Shows a large “remember to submit” message on the final day.
 - Keeps working offline after the first visit and can be installed on iPhone or Android.
 
 There is no employer login, cloud sync, payroll calculation, overtime rule, wage calculation,
-tracking, or analytics. The only stored information is the pay schedule and hours entered in the
+tracking, or analytics. The only stored information is the pay schedule, hours and notes entered in the
 browser's local storage.
 
 ## Screenshots

@@ -24,6 +24,8 @@
 
 html {
   color-scheme: light;
+  /* Keep focused and scrolled-to boxes clear of the sticky totals bar (it holds three category totals). */
+  scroll-padding-bottom: calc(240px + env(safe-area-inset-bottom));
   -webkit-text-size-adjust: 100%;
 }
 
@@ -35,7 +37,7 @@ body {
   font-size: 18px;
   line-height: 1.45;
   padding: 0 var(--gap);
-  padding-bottom: calc(140px + env(safe-area-inset-bottom));
+  padding-bottom: calc(250px + env(safe-area-inset-bottom));
 }
 
 [hidden] {
@@ -46,7 +48,7 @@ h1, h2, h3, p {
   margin: 0;
 }
 
-button, input {
+button, input, textarea {
   font: inherit;
   color: inherit;
 }
@@ -315,13 +317,9 @@ button, input {
 }
 
 .day-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-areas:
-    "label control"
-    "error error";
-  align-items: center;
-  gap: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   border: 3px solid var(--rule-soft);
   border-radius: var(--radius);
   padding: 10px 12px 10px 16px;
@@ -335,14 +333,57 @@ button, input {
 }
 
 .day-label {
-  grid-area: label;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   font-weight: 700;
   font-size: 19px;
+}
+
+.category {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "name control"
+    "error error"
+    "note note";
+  align-items: center;
+  gap: 6px 12px;
+  border-top: 2px solid var(--rule-soft);
+  padding-top: 10px;
+}
+
+.category-name {
+  grid-area: name;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
   cursor: pointer;
+}
+
+.note-input {
+  grid-area: note;
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 2px solid var(--rule-soft);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  font-size: 18px;
+  line-height: 1.35;
+  resize: vertical;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.note-input::placeholder {
+  color: #8a8a8a;
+}
+
+.note-input:focus {
+  border-color: var(--black);
 }
 
 .today-badge {
@@ -406,6 +447,44 @@ button, input {
   border-top: 4px solid var(--black);
   padding: 12px var(--gap) calc(12px + env(safe-area-inset-bottom));
   box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.08);
+}
+
+.category-totals {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.category-total {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2px;
+  border: 2px solid var(--black);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+}
+
+.category-total[data-category="earlier"] {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: baseline;
+  border-style: dashed;
+}
+
+.category-total-label {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.category-total-value {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.15;
 }
 
 .total-line {
@@ -506,12 +585,13 @@ button, input {
 /* ---------- very narrow / 200% text zoom ---------- */
 
 @media (max-width: 340px) {
-  .day-row {
+  .category {
     grid-template-columns: 1fr;
     grid-template-areas:
-      "label"
+      "name"
       "control"
-      "error";
+      "error"
+      "note";
   }
 
   .day-control {

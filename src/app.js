@@ -10,8 +10,13 @@ import {
   shiftPeriod,
   sanitizeHours,
   totalHours,
+  categoryTotals,
+  sanitizeNote,
   loadState,
   saveState,
+  CATEGORIES,
+  EARLIER_CATEGORY,
+  MAX_NOTE_LENGTH,
 } from './core/hours.js'
 
 const MAX_PERIOD_DAYS = 31
@@ -19,7 +24,8 @@ const DEFAULT_PERIOD_DAYS = 14
 const SAVE_FAILED_MESSAGE = 'Could not save on this phone. Your hours may be lost when you close this page.'
 
 // ---------- state ----------
-// Core state shape: { version, anchorStartKey, lengthDays, entries: { [dateKey]: number } }
+// Core state shape: { version, anchorStartKey, lengthDays,
+//   entries: { [dateKey]: { [categoryId]: number } }, notes: { [dateKey]: { [categoryId]: string } } }
 // period.dates is an array of "YYYY-MM-DD" keys; keys are used directly and parsed only for display.
 
 // Chromium restores the previous scroll position on reload, which can hide the final-day reminder.
@@ -62,11 +68,29 @@ function readEntries() {
   return state.entries
 }
 
-function writeEntry(key, hours) {
-  const entries = { ...readEntries() }
-  if (hours === null) delete entries[key]
-  else entries[key] = hours
-  state = { ...state, entries }
+function readNotes() {
+  if (!state || typeof state.notes !== 'object' || state.notes === null) return {}
+  return state.notes
+}
+
+// Set or clear one category's value for one day inside entries or notes, dropping days left empty.
+function withDayValue(map, key, categoryId, value) {
+  const next = { ...map }
+  const day = { ...(next[key] || {}) }
+  if (value === null) delete day[categoryId]
+  else day[categoryId] = value
+  if (Object.keys(day).length > 0) next[key] = day
+  else delete next[key]
+  return next
+}
+
+function writeEntry(key, categoryId, hours) {
+  state = { ...state, entries: withDayValue(readEntries(), key, categoryId, hours) }
+  return persist()
+}
+
+function writeNote(key, categoryId, note) {
+  state = { ...state, notes: withDayValue(readNotes(), key, categoryId, note) }
   return persist()
 }
 
@@ -100,6 +124,7 @@ const el = {
   dayList: document.getElementById('day-list'),
   totalBar: document.getElementById('total-bar'),
   totalValue: document.getElementById('total-value'),
+  categoryTotals: document.getElementById('category-totals'),
   saveStatus: document.getElementById('save-status'),
 }
 
@@ -311,49 +336,74 @@ function render() {
 
 function renderDayRow(key, entries, t) {
   const isToday = key === t
-  const saved = entries[key]
+  const day = entries[key] || {}
+  const dayNotes = readNotes()[key] || {}
 
   const li = document.createElement('li')
   li.className = 'day-row'
-  if (isToday) li.classList.add('is-today')
+  if (isToday) {
+    li.classList.add('is-today')
+    li.setAttribute('aria-current', 'date')
+  }
   li.dataset.key = key
 
-  const label = document.createElement('label')
-  label.className = 'day-label'
-  label.htmlFor = `hours-${key}`
+  const heading = document.createElement('h3')
+  heading.className = 'day-label'
 
   const dayName = document.createElement('span')
   dayName.className = 'day-name'
   dayName.textContent = formatDay(key, shortDate)
-  label.append(dayName)
+  heading.append(dayName)
 
   const sr = document.createElement('span')
   sr.className = 'visually-hidden'
-  sr.textContent = ` — hours worked, ${formatDay(key, longDate)}`
-  label.append(sr)
+  sr.textContent = ` — ${formatDay(key, longDate)}`
+  heading.append(sr)
 
   if (isToday) {
     const badge = document.createElement('span')
     badge.className = 'today-badge'
     badge.textContent = 'Today'
-    label.append(badge)
+    heading.append(badge)
   }
+  li.append(heading)
+
+  // Hours typed before categories existed get their own row only on days that have them.
+  const categories = typeof day[EARLIER_CATEGORY.id] === 'number' ? [...CATEGORIES, EARLIER_CATEGORY] : CATEGORIES
+  for (const category of categories) {
+    li.append(renderCategory(key, category, day[category.id], dayNotes[category.id], isToday))
+  }
+  return li
+}
+
+function renderCategory(key, category, saved, savedNote, isToday) {
+  const id = `${key}-${category.id}`
+  const block = document.createElement('div')
+  block.className = 'category'
+  block.dataset.category = category.id
+
+  const label = document.createElement('label')
+  label.className = 'category-name'
+  label.htmlFor = `hours-${id}`
+  label.textContent = category.label
+  const sr = document.createElement('span')
+  sr.className = 'visually-hidden'
+  sr.textContent = ` — hours worked, ${formatDay(key, longDate)}`
+  label.append(sr)
 
   const input = document.createElement('input')
   input.type = 'text'
   input.inputMode = 'decimal'
   input.autocomplete = 'off'
-  input.enterKeyHint = 'done'
-  input.id = `hours-${key}`
-  input.name = `hours-${key}`
+  input.enterKeyHint = 'next'
+  input.id = `hours-${id}`
+  input.name = `hours-${id}`
   input.className = 'hours-input'
   input.placeholder = '—'
-  input.setAttribute('aria-describedby', `hours-hint hours-${key}-error`)
+  input.setAttribute('aria-describedby', `hours-hint hours-${id}-error`)
   input.dataset.key = key
-  if (isToday) {
-    input.dataset.today = 'true'
-    li.setAttribute('aria-current', 'date')
-  }
+  input.dataset.category = category.id
+  if (isToday) input.dataset.today = 'true'
   input.value = typeof saved === 'number' ? trimNumber(saved) : ''
 
   const unit = document.createElement('span')
@@ -361,18 +411,32 @@ function renderDayRow(key, entries, t) {
   unit.setAttribute('aria-hidden', 'true')
   unit.textContent = 'hours'
 
-  const error = document.createElement('p')
-  error.className = 'field-error day-error'
-  error.id = `hours-${key}-error`
-  error.hidden = true
-
   const control = document.createElement('div')
   control.className = 'day-control'
   control.append(input, unit)
 
-  li.append(label, control, error)
+  const error = document.createElement('p')
+  error.className = 'field-error day-error'
+  error.id = `hours-${id}-error`
+  error.hidden = true
 
-  input.addEventListener('input', () => handleHoursInput(input, error, key))
+  const noteLabel = document.createElement('label')
+  noteLabel.className = 'visually-hidden'
+  noteLabel.htmlFor = `note-${id}`
+  noteLabel.textContent = `Note for ${category.label}, ${formatDay(key, longDate)}`
+
+  const note = document.createElement('textarea')
+  note.id = `note-${id}`
+  note.name = `note-${id}`
+  note.className = 'note-input'
+  note.rows = 1
+  note.maxLength = MAX_NOTE_LENGTH
+  note.placeholder = 'Note'
+  note.value = typeof savedNote === 'string' ? savedNote : ''
+
+  block.append(label, control, error, noteLabel, note)
+
+  input.addEventListener('input', () => handleHoursInput(input, error, key, category))
   input.addEventListener('blur', () => handleHoursBlur(input, error))
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
@@ -383,7 +447,29 @@ function renderDayRow(key, entries, t) {
       else input.blur()
     }
   })
-  return li
+  note.addEventListener('input', () => {
+    fitNote(note)
+    handleNoteInput(note, key, category)
+  })
+  // Grow saved multi-line notes once the row is on the page.
+  requestAnimationFrame(() => fitNote(note))
+  return block
+}
+
+function fitNote(note) {
+  note.style.height = 'auto'
+  note.style.height = `${note.scrollHeight + 6}px`
+}
+
+function handleNoteInput(note, key, category) {
+  const text = sanitizeNote(note.value)
+  const saved = writeNote(key, category.id, text)
+  if (!saved) {
+    announce(SAVE_FAILED_MESSAGE)
+    return
+  }
+  const dayText = formatDay(key, shortDate)
+  announceSoon(text === null ? `Cleared the ${category.label} note for ${dayText}.` : `Saved the ${category.label} note for ${dayText}.`)
 }
 
 function trimNumber(n) {
@@ -391,7 +477,7 @@ function trimNumber(n) {
   return String(rounded)
 }
 
-function handleHoursInput(input, error, key) {
+function handleHoursInput(input, error, key, category) {
   const raw = input.value.trim()
   const hours = sanitizeHours(raw)
   const invalid = raw !== '' && hours === null
@@ -400,9 +486,9 @@ function handleHoursInput(input, error, key) {
     error.hidden = false
     input.setAttribute('aria-invalid', 'true')
     // Drop any earlier valid value for this day so a half-typed "25" or "8x" is never counted or restored.
-    const wasStored = typeof readEntries()[key] === 'number'
+    const wasStored = typeof readEntries()[key]?.[category.id] === 'number'
     if (wasStored) {
-      const saved = writeEntry(key, null)
+      const saved = writeEntry(key, category.id, null)
       renderTotal()
       renderReminder(todayKey())
       if (!saved) {
@@ -416,7 +502,7 @@ function handleHoursInput(input, error, key) {
   error.hidden = true
   error.textContent = ''
   input.removeAttribute('aria-invalid')
-  const saved = writeEntry(key, hours)
+  const saved = writeEntry(key, category.id, hours)
   renderTotal()
   renderReminder(todayKey())
   if (!saved) {
@@ -424,7 +510,7 @@ function handleHoursInput(input, error, key) {
     return
   }
   const dayText = formatDay(key, shortDate)
-  announceSoon(hours === null ? `Cleared ${dayText}.` : `Saved ${formatHours(hours)} for ${dayText}.`)
+  announceSoon(hours === null ? `Cleared ${category.label} for ${dayText}.` : `Saved ${formatHours(hours)} of ${category.label} for ${dayText}.`)
 }
 
 function handleHoursBlur(input, error) {
@@ -441,11 +527,31 @@ function handleHoursBlur(input, error) {
 
 function renderTotal() {
   const entries = readEntries()
-  const total = totalHours(entries, period.dates)
-  const filled = period.dates.filter((key) => typeof entries[key] === 'number').length
-  el.totalValue.textContent = formatHours(total)
-  el.totalValue.dataset.total = String(total)
-  el.totalValue.setAttribute('aria-label', `Total this period: ${formatHours(total)} across ${filled} ${filled === 1 ? 'day' : 'days'} entered`)
+  const totals = categoryTotals(entries, period.dates)
+  const filled = period.dates.filter((key) => entries[key] && Object.keys(entries[key]).length > 0).length
+
+  // Earlier (no category) hours only get a total box in a period that has some.
+  const showEarlier = period.dates.some((key) => typeof entries[key]?.[EARLIER_CATEGORY.id] === 'number')
+  const categories = showEarlier ? [...CATEGORIES, EARLIER_CATEGORY] : CATEGORIES
+  el.categoryTotals.replaceChildren(...categories.map((category) => {
+    const item = document.createElement('li')
+    item.className = 'category-total'
+    item.dataset.category = category.id
+    const label = document.createElement('span')
+    label.className = 'category-total-label'
+    label.textContent = category.label
+    const value = document.createElement('span')
+    value.className = 'category-total-value'
+    value.dataset.total = String(totals[category.id])
+    value.textContent = formatHours(totals[category.id])
+    item.append(label, value)
+    return item
+  }))
+
+  el.totalValue.textContent = formatHours(totals.all)
+  el.totalValue.dataset.total = String(totals.all)
+  const parts = categories.map((category) => `${category.label} ${formatHours(totals[category.id])}`).join(', ')
+  el.totalValue.setAttribute('aria-label', `Total this period: ${formatHours(totals.all)} across ${filled} ${filled === 1 ? 'day' : 'days'} entered. ${parts}.`)
 }
 
 function renderReminder(t) {

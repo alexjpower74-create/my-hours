@@ -73,12 +73,13 @@
 
     <section class="days" aria-labelledby="days-title">
       <h2 id="days-title" class="days-title">Hours for each day</h2>
-      <p id="hours-hint" class="days-hint">Type the hours you worked, from 0 to 24. Leave a day blank if you have not worked it yet. Type 0 for a day off.</p>
+      <p id="hours-hint" class="days-hint">Type the hours you worked for each category, from 0 to 24. Leave a box blank if you have no hours for it. Add a note under any category if you like.</p>
       <ol class="day-list" id="day-list"></ol>
     </section>
   </main>
 
   <footer class="total-bar" id="total-bar" hidden>
+    <ul class="category-totals" id="category-totals" aria-label="Hours for each category this period"></ul>
     <div class="total-line">
       <span class="total-label">Total this period</span>
       <output class="total-value" id="total-value" for="day-list" aria-live="polite" aria-atomic="true">0 hours</output>

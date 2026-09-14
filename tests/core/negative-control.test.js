@@ -38,6 +38,15 @@ function brokenPeriodStart(anchorKey, len, targetKey) {
 // Bug 5: rounding through template interpolation; `${1e-7}` is "1e-7".
 const brokenRoundInterpolated = (n) => Math.round(Number(`${n}e2`)) / 100
 
+// Bug 6: an upgrade that only understands the new per-category shape and
+// silently drops version 1 hours (one number per day).
+const brokenCategoryTotal = (entries, dates) =>
+  dates.reduce((s, k) => s + (entries[k] && typeof entries[k] === 'object'
+    ? Object.values(entries[k]).reduce((a, h) => a + Math.round(h * 100), 0) : 0), 0) / 100
+
+// Bug 7: a category total that ignores the category and adds up every hour.
+const brokenOneCategory = (entries, dates) => totalHours(entries, dates)
+
 // Bug 4: trusting stored JSON.
 const brokenLoad = (storage) => JSON.parse(storage.getItem(STORAGE_KEY))
 
@@ -84,6 +93,20 @@ describe('negative control — the real checks go red against broken code', () =
     expect(checkPasses(assertion(sanitizeHours))).toBe(true)
     // and the fix must not regress the human-rounding case
     expect(sanitizeHours(1.005)).toBe(1.01)
+  })
+
+  it('upgrade check fails for a total that drops version 1 hours (and passes for the real one)', () => {
+    const mixed = { a: 8, b: { customer: 2 } }
+    const assertion = (fn) => () => expect(fn(mixed, ['a', 'b'])).toBe(10)
+    expect(checkPasses(assertion(brokenCategoryTotal))).toBe(false) // VOID if true
+    expect(checkPasses(assertion(totalHours))).toBe(true)
+  })
+
+  it('per-category check fails for a total that mixes categories (and passes for the real one)', () => {
+    const day = { a: { 'heavy-duty': 4, customer: 3 } }
+    const assertion = (fn) => () => expect(fn(day, ['a'], 'customer')).toBe(3)
+    expect(checkPasses(assertion(brokenOneCategory))).toBe(false) // VOID if true
+    expect(checkPasses(assertion(totalHours))).toBe(true)
   })
 
   it('corrupt-storage check fails for a trusting loader (and passes for the real one)', () => {
