@@ -1,0 +1,16 @@
+name: hygiene
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # The scanner first proves it can fail (a planted-bad repo must be caught),
+      # then scans this tree for home paths, LAN hostnames, Gmail addresses,
+      # 1Password refs and Tailscale IPs. Allow list: .personal-data-allow
+      - run: tools/check-no-personal-data --self-test && tools/check-no-personal-data
